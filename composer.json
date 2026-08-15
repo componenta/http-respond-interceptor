@@ -6,7 +6,7 @@
     "require": {
         "php": "^8.4",
         "componenta/http-responder": "^1.0",
-        "componenta/interceptor": "^1.0",
+        "componenta/interceptor": "^1.0 || ^2.0",
         "componenta/scope": "^1.0",
         "psr/http-message": "^2.0"
     },
