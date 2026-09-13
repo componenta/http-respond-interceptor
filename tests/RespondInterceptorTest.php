@@ -14,7 +14,9 @@ use Nyholm\Psr7\Factory\Psr17Factory;
 
 final readonly class RespondFixedResultHandler implements ContextHandlerInterface
 {
-    public function __construct(private mixed $result) {}
+    public function __construct(private mixed $result)
+    {
+    }
 
     public function handle(CallableContextInterface $context): mixed
     {
@@ -26,7 +28,7 @@ it('wraps handler result into a response', function () {
     $factory = new Psr17Factory();
     $responder = new Responder($factory, $factory);
     $interceptor = new RespondInterceptor($responder, status: 201, contentType: 'application/json');
-    $context = new CallableContext(static fn() => null);
+    $context = new CallableContext(static fn () => null);
 
     $response = $interceptor->intercept($context, new RespondFixedResultHandler(['id' => 1]));
 
@@ -34,6 +36,19 @@ it('wraps handler result into a response', function () {
         ->and($response->getHeaderLine('Content-Type'))->toBe('application/json')
         ->and((string) $response->getBody())->toBe('{"id":1}');
 });
+
+it('omits handler content when the response status prohibits it', function (int $status): void {
+    $factory = new Psr17Factory();
+    $responder = new Responder($factory, $factory);
+    $interceptor = new RespondInterceptor($responder, status: $status);
+    $context = new CallableContext(static fn () => null);
+
+    $response = $interceptor->intercept($context, new RespondFixedResultHandler(['id' => 1]));
+
+    expect($response->getStatusCode())->toBe($status)
+        ->and((string) $response->getBody())->toBe('')
+        ->and($response->getHeaderLine('Content-Length'))->toBe('');
+})->with([103, 204, 205, 304]);
 
 it('declares HTTP scope through response attributes', function () {
     $respond = new Respond(204);
