@@ -12,14 +12,14 @@ use Psr\Http\Message\ResponseInterface;
 final class Created extends Respond
 {
     /**
-     * @param null|Closure(ResponseInterface): ResponseInterface $callback
      * @param array<string, string|string[]> $headers
+     * @param null|Closure(ResponseInterface): ResponseInterface $callback
      */
     public function __construct(
-        ?Closure $callback = null,
         ?string $contentType = 'application/json',
         array $headers = [],
+        ?Closure $callback = null,
     ) {
-        parent::__construct($callback, 201, $contentType, $headers);
+        parent::__construct(201, $contentType, $headers, $callback);
     }
 }

@@ -28,17 +28,17 @@ final readonly class RespondFixedResultHandler implements ContextHandlerInterfac
 final class RespondAttributeCallbackFixture
 {
     #[Respond(
-        static function (ResponseInterface $response): ResponseInterface {
+        202,
+        callback: static function (ResponseInterface $response): ResponseInterface {
             return $response->withHeader('X-Callback', 'closure');
         },
-        status: 202,
     )]
     public function closure(): array
     {
         return [];
     }
 
-    #[Respond(self::modify(...), status: 203)]
+    #[Respond(203, callback: self::modify(...))]
     public function firstClassCallable(): array
     {
         return [];
@@ -160,7 +160,7 @@ it('omits handler content when the response status prohibits it', function (int 
 })->with([103, 204, 205, 304]);
 
 it('declares HTTP scope through response attributes', function () {
-    $respond = new Respond(status: 204);
+    $respond = new Respond(204);
     $created = new Created();
 
     expect($respond->scopes->contains(Scope::HTTP))->toBeTrue()
@@ -174,7 +174,7 @@ it('passes response headers through attributes', function () {
         'Cache-Control' => 'no-store',
         'Vary' => ['Accept', 'Authorization'],
     ];
-    $respond = new Respond(status: 202, contentType: 'application/json', headers: $headers);
+    $respond = new Respond(202, 'application/json', $headers);
     $created = new Created(headers: $headers);
 
     expect($respond->params)->toBe([
@@ -188,16 +188,16 @@ it('passes response headers through attributes', function () {
     ]);
 });
 
-it('accepts a callback as the first response attribute argument', function () {
+it('accepts a callback as the last response attribute argument', function () {
     $callback = static function (ResponseInterface $response): ResponseInterface {
         return $response->withHeader('X-Callback', 'direct');
     };
-    $respond = new Respond($callback, status: 202);
-    $created = new Created($callback);
+    $respond = new Respond(202, 'application/json', [], $callback);
+    $created = new Created('application/json', [], $callback);
 
     expect($respond->params)->toBe([
         'status' => 202,
-        'contentType' => null,
+        'contentType' => 'application/json',
         'callback' => $callback,
     ])->and($created->params)->toBe([
         'status' => 201,

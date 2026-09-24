@@ -21,14 +21,14 @@ class Respond extends Intercept implements ScopedInterface
     }
 
     /**
-     * @param null|Closure(ResponseInterface): ResponseInterface $callback
      * @param array<string, string|string[]> $headers
+     * @param null|Closure(ResponseInterface): ResponseInterface $callback
      */
     public function __construct(
-        ?Closure $callback = null,
         int $status = 200,
         ?string $contentType = null,
         array $headers = [],
+        ?Closure $callback = null,
     ) {
         $params = [
             'status' => $status,

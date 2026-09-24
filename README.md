@@ -33,7 +33,7 @@ use Componenta\Interceptor\Http\Attribute\Respond;
 
 final class HealthController
 {
-    #[Respond(status: 200, contentType: 'application/json')]
+    #[Respond(200, 'application/json')]
     public function __invoke(): array
     {
         return ['status' => 'ok'];
@@ -45,7 +45,7 @@ final class HealthController
 
 ## Response Callback
 
-The first argument of `#[Respond]` is an optional response callback. It receives the fully built `ResponseInterface` and must return a `ResponseInterface`.
+The last argument of `#[Respond]` is an optional response callback. It receives the fully built `ResponseInterface` and must return a `ResponseInterface`.
 
 Configured headers are applied before the callback, so the callback is the final response transformation and may replace headers, change the status, or perform any other immutable PSR-7 modification.
 
@@ -55,13 +55,13 @@ PHP 8.5 allows a static closure directly in an attribute:
 use Psr\Http\Message\ResponseInterface;
 
 #[Respond(
-    static function (ResponseInterface $response): ResponseInterface {
+    200,
+    'application/json',
+    callback: static function (ResponseInterface $response): ResponseInterface {
         return $response
             ->withStatus(202)
             ->withHeader('X-Response-Source', 'callback');
     },
-    status: 200,
-    contentType: 'application/json',
 )]
 public function show(): array {}
 ```
@@ -71,7 +71,7 @@ First-class callables are supported as well:
 ```php
 final class UserController
 {
-    #[Respond(self::decorate(...), status: 200)]
+    #[Respond(200, callback: self::decorate(...))]
     public function show(): array
     {
         return [];
@@ -84,7 +84,7 @@ final class UserController
 }
 ```
 
-`#[Created]` supports the same first callback argument.
+`#[Created]` supports the same final callback argument.
 
 If a callback returns anything other than `ResponseInterface`, `RespondInterceptor` throws `UnexpectedValueException`.
 
@@ -97,11 +97,11 @@ use Componenta\Interceptor\Http\Attribute\Respond;
 #[Created]
 public function create(): array {}
 
-#[Respond(status: 204)]
+#[Respond(204)]
 public function delete(): null {}
 ```
 
-`#[Respond(status: 204)]` returns an empty response because this behavior belongs to `Componenta\Http\Responder`.
+`#[Respond(204)]` returns an empty response because this behavior belongs to `Componenta\Http\Responder`.
 
 ## HTTP Headers
 
@@ -140,24 +140,22 @@ new RespondInterceptor(
 
 ## Migration From 1.x
 
-Version 2.0 requires PHP 8.5+. The first positional argument of `#[Respond]` is now the optional callback, so status and content type should be passed by name:
+Version 2.0 requires PHP 8.5+, but the existing argument order is preserved. The callback is appended after `headers`, so existing positional calls remain valid:
 
 ```php
-// 1.x
 #[Respond(201, 'application/json')]
+#[Respond(200, 'application/json', ['Cache-Control' => 'no-store'])]
 
-// 2.x
-#[Respond(status: 201, contentType: 'application/json')]
+#[Created('application/problem+json')]
 ```
 
-The first positional argument of `#[Created]` is now the optional callback. Existing positional content-type calls should use the named argument:
+The callback can be supplied by name without filling unused optional arguments:
 
 ```php
-// 1.x
-#[Created('application/problem+json')]
-
-// 2.x
-#[Created(contentType: 'application/problem+json')]
+#[Respond(200, callback: self::decorate(...))]
+#[Created(callback: static fn (ResponseInterface $response): ResponseInterface =>
+    $response->withHeader('Location', '/users/42')
+)]
 ```
 
 ## Ordering With Serialization

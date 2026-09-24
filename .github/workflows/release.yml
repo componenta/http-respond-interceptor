@@ -49,7 +49,11 @@ jobs:
             exit 1
           fi
           if gh release view "$tag" >/dev/null 2>&1; then
-            echo "Release $tag already exists."
+            echo "Release $tag already exists; moving it to $GITHUB_SHA."
+            git tag --force "$tag" "$GITHUB_SHA"
+            git push origin "refs/tags/$tag" --force
+            release_id="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" --jq .id)"
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/releases/$release_id" -f target_commitish="$GITHUB_SHA" -f name="$tag" >/dev/null
             exit 0
           fi
           gh release create "$tag" --target "$GITHUB_SHA" --title "$tag" --generate-notes
