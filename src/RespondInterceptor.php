@@ -17,10 +17,14 @@ final readonly class RespondInterceptor implements InterceptorInterface, ScopedI
 {
     public Scopes $scopes;
 
+    /**
+     * @param array<string, string|string[]> $headers
+     */
     public function __construct(
         private Responder $responder,
         private int $status = 200,
         private ?string $contentType = null,
+        private array $headers = [],
     ) {
         $this->scopes = Scopes::of(Scope::HTTP);
     }
@@ -29,6 +33,12 @@ final readonly class RespondInterceptor implements InterceptorInterface, ScopedI
         CallableContextInterface $context,
         ContextHandlerInterface $handler,
     ): ResponseInterface {
-        return $this->responder->respond($this->status, $handler->handle($context), $this->contentType);
+        $response = $this->responder->respond($this->status, $handler->handle($context), $this->contentType);
+
+        foreach ($this->headers as $name => $value) {
+            $response = $response->withHeader($name, $value);
+        }
+
+        return $response;
     }
 }

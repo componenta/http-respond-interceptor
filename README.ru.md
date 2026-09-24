@@ -52,6 +52,38 @@ public function delete(): null {}
 
 `#[Respond(204)]` вернет пустой ответ, потому что это поведение задает `Componenta\Http\Responder`.
 
+## HTTP-заголовки
+
+Заголовки ответа можно передать в `#[Respond]` или `#[Created]` через аргумент `headers`. Значением заголовка может быть строка или массив строк.
+
+```php
+#[Respond(
+    200,
+    'application/json',
+    headers: [
+        'Cache-Control' => 'no-store',
+        'Vary' => ['Accept', 'Authorization'],
+    ],
+)]
+public function show(): array {}
+
+#[Created(headers: ['Location' => '/users/42'])]
+public function create(): array {}
+```
+
+Перехватчик применяет настроенные заголовки после `Responder::respond()`. Поэтому они добавляются и в случае, когда обработчик уже вернул `ResponseInterface`; если заголовок с таким именем уже существует, настроенное значение заменяет его.
+
+Таким же образом заголовки можно передать непосредственно в перехватчик:
+
+```php
+new RespondInterceptor(
+    $responder,
+    status: 200,
+    contentType: 'application/json',
+    headers: ['Cache-Control' => 'no-store'],
+);
+```
+
 ## Порядок с сериализацией
 
 Response-перехватчик должен быть внешним слоем, если ниже есть сериализация:

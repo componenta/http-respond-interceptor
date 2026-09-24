@@ -18,13 +18,23 @@ class Respond extends Intercept implements ScopedInterface
         get => Scopes::of(Scope::HTTP);
     }
 
+    /**
+     * @param array<string, string|string[]> $headers
+     */
     public function __construct(
         int $status = 200,
         ?string $contentType = null,
+        array $headers = [],
     ) {
-        parent::__construct(RespondInterceptor::class, [
+        $params = [
             'status' => $status,
             'contentType' => $contentType,
-        ]);
+        ];
+
+        if ($headers !== []) {
+            $params['headers'] = $headers;
+        }
+
+        parent::__construct(RespondInterceptor::class, $params);
     }
 }
