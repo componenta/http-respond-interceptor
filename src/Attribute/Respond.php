@@ -5,11 +5,13 @@ declare(strict_types=1);
 namespace Componenta\Interceptor\Http\Attribute;
 
 use Attribute;
+use Closure;
 use Componenta\Interceptor\Attribute\Intercept;
 use Componenta\Interceptor\Http\RespondInterceptor;
 use Componenta\Interceptor\Scope;
 use Componenta\Scope\ScopedInterface;
 use Componenta\Scope\Scopes;
+use Psr\Http\Message\ResponseInterface;
 
 #[Attribute(Attribute::TARGET_METHOD | Attribute::TARGET_FUNCTION)]
 class Respond extends Intercept implements ScopedInterface
@@ -19,9 +21,11 @@ class Respond extends Intercept implements ScopedInterface
     }
 
     /**
+     * @param null|Closure(ResponseInterface): ResponseInterface $callback
      * @param array<string, string|string[]> $headers
      */
     public function __construct(
+        ?Closure $callback = null,
         int $status = 200,
         ?string $contentType = null,
         array $headers = [],
@@ -33,6 +37,10 @@ class Respond extends Intercept implements ScopedInterface
 
         if ($headers !== []) {
             $params['headers'] = $headers;
+        }
+
+        if ($callback !== null) {
+            $params['callback'] = $callback;
         }
 
         parent::__construct(RespondInterceptor::class, $params);

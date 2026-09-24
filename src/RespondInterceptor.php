@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Componenta\Interceptor\Http;
 
+use Closure;
 use Componenta\Http\Responder;
 use Componenta\Interceptor\CallableContextInterface;
 use Componenta\Interceptor\ContextHandlerInterface;
@@ -12,6 +13,7 @@ use Componenta\Interceptor\Scope;
 use Componenta\Scope\ScopedInterface;
 use Componenta\Scope\Scopes;
 use Psr\Http\Message\ResponseInterface;
+use UnexpectedValueException;
 
 final readonly class RespondInterceptor implements InterceptorInterface, ScopedInterface
 {
@@ -19,12 +21,14 @@ final readonly class RespondInterceptor implements InterceptorInterface, ScopedI
 
     /**
      * @param array<string, string|string[]> $headers
+     * @param null|Closure(ResponseInterface): ResponseInterface $callback
      */
     public function __construct(
         private Responder $responder,
         private int $status = 200,
         private ?string $contentType = null,
         private array $headers = [],
+        private ?Closure $callback = null,
     ) {
         $this->scopes = Scopes::of(Scope::HTTP);
     }
@@ -39,6 +43,19 @@ final readonly class RespondInterceptor implements InterceptorInterface, ScopedI
             $response = $response->withHeader($name, $value);
         }
 
-        return $response;
+        if ($this->callback === null) {
+            return $response;
+        }
+
+        $modified = ($this->callback)($response);
+        if (!$modified instanceof ResponseInterface) {
+            throw new UnexpectedValueException(sprintf(
+                'Response callback must return %s, %s returned.',
+                ResponseInterface::class,
+                get_debug_type($modified),
+            ));
+        }
+
+        return $modified;
     }
 }

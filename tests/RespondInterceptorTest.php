@@ -11,6 +11,7 @@ use Componenta\Interceptor\Http\Attribute\Respond;
 use Componenta\Interceptor\Http\RespondInterceptor;
 use Componenta\Interceptor\Scope;
 use Nyholm\Psr7\Factory\Psr17Factory;
+use Psr\Http\Message\ResponseInterface;
 
 final readonly class RespondFixedResultHandler implements ContextHandlerInterface
 {
@@ -21,6 +22,31 @@ final readonly class RespondFixedResultHandler implements ContextHandlerInterfac
     public function handle(CallableContextInterface $context): mixed
     {
         return $this->result;
+    }
+}
+
+final class RespondAttributeCallbackFixture
+{
+    #[Respond(
+        static function (ResponseInterface $response): ResponseInterface {
+            return $response->withHeader('X-Callback', 'closure');
+        },
+        status: 202,
+    )]
+    public function closure(): array
+    {
+        return [];
+    }
+
+    #[Respond(self::modify(...), status: 203)]
+    public function firstClassCallable(): array
+    {
+        return [];
+    }
+
+    private static function modify(ResponseInterface $response): ResponseInterface
+    {
+        return $response->withHeader('X-Callback', 'first-class');
     }
 }
 
@@ -80,6 +106,46 @@ it('applies configured headers when the handler already returns a response', fun
         ->and($response->getHeaderLine('X-Origin'))->toBe('handler');
 });
 
+it('applies the response callback after configured headers', function () {
+    $factory = new Psr17Factory();
+    $responder = new Responder($factory, $factory);
+    $interceptor = new RespondInterceptor(
+        $responder,
+        status: 201,
+        headers: ['X-Stage' => 'headers'],
+        callback: static function (ResponseInterface $response): ResponseInterface {
+            return $response
+                ->withStatus(202)
+                ->withHeader('X-Stage', $response->getHeaderLine('X-Stage') . ', callback');
+        },
+    );
+    $context = new CallableContext(static fn () => null);
+
+    $response = $interceptor->intercept($context, new RespondFixedResultHandler(['id' => 1]));
+
+    expect($response->getStatusCode())->toBe(202)
+        ->and($response->getHeaderLine('X-Stage'))->toBe('headers, callback');
+});
+
+it('rejects a callback result that is not a response', function () {
+    $factory = new Psr17Factory();
+    $responder = new Responder($factory, $factory);
+    $interceptor = new RespondInterceptor(
+        $responder,
+        callback: static function (ResponseInterface $response): string {
+            return 'invalid';
+        },
+    );
+    $context = new CallableContext(static fn () => null);
+
+    expect(
+        fn () => $interceptor->intercept($context, new RespondFixedResultHandler(['id' => 1])),
+    )->toThrow(
+        UnexpectedValueException::class,
+        'Response callback must return Psr\Http\Message\ResponseInterface, string returned.',
+    );
+});
+
 it('omits handler content when the response status prohibits it', function (int $status): void {
     $factory = new Psr17Factory();
     $responder = new Responder($factory, $factory);
@@ -94,7 +160,7 @@ it('omits handler content when the response status prohibits it', function (int 
 })->with([103, 204, 205, 304]);
 
 it('declares HTTP scope through response attributes', function () {
-    $respond = new Respond(204);
+    $respond = new Respond(status: 204);
     $created = new Created();
 
     expect($respond->scopes->contains(Scope::HTTP))->toBeTrue()
@@ -108,7 +174,7 @@ it('passes response headers through attributes', function () {
         'Cache-Control' => 'no-store',
         'Vary' => ['Accept', 'Authorization'],
     ];
-    $respond = new Respond(202, 'application/json', $headers);
+    $respond = new Respond(status: 202, contentType: 'application/json', headers: $headers);
     $created = new Created(headers: $headers);
 
     expect($respond->params)->toBe([
@@ -120,4 +186,41 @@ it('passes response headers through attributes', function () {
         'contentType' => 'application/json',
         'headers' => $headers,
     ]);
+});
+
+it('accepts a callback as the first response attribute argument', function () {
+    $callback = static function (ResponseInterface $response): ResponseInterface {
+        return $response->withHeader('X-Callback', 'direct');
+    };
+    $respond = new Respond($callback, status: 202);
+    $created = new Created($callback);
+
+    expect($respond->params)->toBe([
+        'status' => 202,
+        'contentType' => null,
+        'callback' => $callback,
+    ])->and($created->params)->toBe([
+        'status' => 201,
+        'contentType' => 'application/json',
+        'callback' => $callback,
+    ]);
+});
+
+it('materializes PHP 8.5 closure and first-class callable attribute arguments', function () {
+    $factory = new Psr17Factory();
+
+    $closure = (new ReflectionMethod(RespondAttributeCallbackFixture::class, 'closure'))
+        ->getAttributes(Respond::class)[0]
+        ->newInstance();
+    $firstClass = (new ReflectionMethod(RespondAttributeCallbackFixture::class, 'firstClassCallable'))
+        ->getAttributes(Respond::class)[0]
+        ->newInstance();
+
+    $closureResponse = ($closure->params['callback'])($factory->createResponse());
+    $firstClassResponse = ($firstClass->params['callback'])($factory->createResponse());
+
+    expect($closure->params['status'])->toBe(202)
+        ->and($closureResponse->getHeaderLine('X-Callback'))->toBe('closure')
+        ->and($firstClass->params['status'])->toBe(203)
+        ->and($firstClassResponse->getHeaderLine('X-Callback'))->toBe('first-class');
 });
