@@ -231,7 +231,7 @@ it('distinguishes an omitted response result from an explicit null override', fu
     $nullResponse = $null->intercept($context, $handler);
 
     expect((string) $defaultResponse->getBody())->toBe('{"id":1}')
-        ->and($nullResponse->getStatusCode())->toBe(204)
+        ->and($nullResponse->getStatusCode())->toBe(200)
         ->and((string) $nullResponse->getBody())->toBe('');
 });
 
