@@ -22,13 +22,13 @@ class Respond extends Intercept implements ScopedInterface
 
     /**
      * @param array<string, string|string[]> $headers
-     * @param null|Closure(ResponseInterface): ResponseInterface $callback
+     * @param null|Closure(ResponseInterface, mixed): ResponseInterface $factory
      */
     public function __construct(
         int $status = 200,
         ?string $contentType = null,
         array $headers = [],
-        ?Closure $callback = null,
+        ?Closure $factory = null,
     ) {
         $params = [
             'status' => $status,
@@ -39,8 +39,8 @@ class Respond extends Intercept implements ScopedInterface
             $params['headers'] = $headers;
         }
 
-        if ($callback !== null) {
-            $params['callback'] = $callback;
+        if ($factory !== null) {
+            $params['factory'] = $factory;
         }
 
         parent::__construct(RespondInterceptor::class, $params);

@@ -43,11 +43,11 @@ final class HealthController
 
 `#[Respond]` наследует `Componenta\Interceptor\Attribute\Intercept`. `AttributeInterceptor` создает `RespondInterceptor` через контейнер, а сам `RespondInterceptor` вызывает `Responder::respond($status, $result, $contentType)`.
 
-## Callback ответа
+## Factory ответа
 
-Последний аргумент `#[Respond]` — необязательный callback ответа. Он принимает полностью сформированный `ResponseInterface` и обязан вернуть `ResponseInterface`.
+Последний аргумент `#[Respond]` — необязательный factory ответа. Первым аргументом он принимает полностью сформированный `ResponseInterface`, вторым — `mixed` результат, возвращённый вложенной цепочкой обработчика/interceptor-ов. Factory обязан вернуть `ResponseInterface`.
 
-Настроенные HTTP-заголовки применяются до callback, поэтому callback является финальным преобразованием ответа: он может заменить заголовки, изменить статус или выполнить любое другое иммутабельное PSR-7 преобразование.
+Настроенные HTTP-заголовки применяются до factory, поэтому factory является финальным преобразованием ответа: он может заменить заголовки, изменить статус или выполнить любое другое иммутабельное PSR-7 преобразование.
 
 PHP 8.5 позволяет передать static closure непосредственно в атрибут:
 
@@ -57,10 +57,10 @@ use Psr\Http\Message\ResponseInterface;
 #[Respond(
     200,
     'application/json',
-    callback: static function (ResponseInterface $response): ResponseInterface {
+    factory: static function (ResponseInterface $response, mixed $result): ResponseInterface {
         return $response
             ->withStatus(202)
-            ->withHeader('X-Response-Source', 'callback');
+            ->withHeader('X-Response-Source', 'factory');
     },
 )]
 public function show(): array {}
@@ -71,22 +71,22 @@ public function show(): array {}
 ```php
 final class UserController
 {
-    #[Respond(200, callback: self::decorate(...))]
+    #[Respond(200, factory: self::decorate(...))]
     public function show(): array
     {
         return [];
     }
 
-    private static function decorate(ResponseInterface $response): ResponseInterface
+    private static function decorate(ResponseInterface $response, mixed $result): ResponseInterface
     {
         return $response->withHeader('Cache-Control', 'no-store');
     }
 }
 ```
 
-`#[Created]` поддерживает такой же последний callback-аргумент.
+`#[Created]` поддерживает такой же последний factory-аргумент.
 
-Если callback возвращает значение, не реализующее `ResponseInterface`, `RespondInterceptor` выбрасывает `UnexpectedValueException`.
+Если factory возвращает значение, не реализующее `ResponseInterface`, `RespondInterceptor` выбрасывает `UnexpectedValueException`.
 
 ## Статусы
 
@@ -122,7 +122,7 @@ public function show(): array {}
 public function create(): array {}
 ```
 
-Перехватчик применяет настроенные заголовки после `Responder::respond()`. Поэтому они добавляются и в случае, когда обработчик уже вернул `ResponseInterface`; если заголовок с таким именем уже существует, настроенное значение заменяет его. Если настроен callback, он выполняется после применения этих заголовков.
+Перехватчик применяет настроенные заголовки после `Responder::respond()`. Поэтому они добавляются и в случае, когда обработчик уже вернул `ResponseInterface`; если заголовок с таким именем уже существует, настроенное значение заменяет его. Если настроен factory, он выполняется после применения этих заголовков и получает тот же результат вложенной цепочки, который был передан в `Responder::respond()`.
 
 Таким же образом заголовки можно передать непосредственно в перехватчик:
 
@@ -132,15 +132,15 @@ new RespondInterceptor(
     status: 200,
     contentType: 'application/json',
     headers: ['Cache-Control' => 'no-store'],
-    callback: static function (ResponseInterface $response): ResponseInterface {
-        return $response->withHeader('X-Response-Source', 'callback');
+    factory: static function (ResponseInterface $response, mixed $result): ResponseInterface {
+        return $response->withHeader('X-Response-Source', 'factory');
     },
 );
 ```
 
 ## Миграция с 1.x
 
-Версия 2.0 требует PHP 8.5+, но существующий порядок аргументов сохранён. Callback добавлен после `headers`, поэтому старые позиционные вызовы остаются корректными:
+Версия 2.0 требует PHP 8.5+, но существующий порядок аргументов сохранён. Factory добавлен после `headers`, поэтому старые позиционные вызовы остаются корректными:
 
 ```php
 #[Respond(201, 'application/json')]
@@ -149,11 +149,11 @@ new RespondInterceptor(
 #[Created('application/problem+json')]
 ```
 
-Callback можно передать именованным аргументом без заполнения неиспользуемых необязательных параметров:
+Factory можно передать именованным аргументом без заполнения неиспользуемых необязательных параметров:
 
 ```php
-#[Respond(200, callback: self::decorate(...))]
-#[Created(callback: static fn (ResponseInterface $response): ResponseInterface =>
+#[Respond(200, factory: self::decorate(...))]
+#[Created(factory: static fn (ResponseInterface $response, mixed $result): ResponseInterface =>
     $response->withHeader('Location', '/users/42')
 )]
 ```

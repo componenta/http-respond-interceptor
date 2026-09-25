@@ -25,12 +25,14 @@ final readonly class RespondFixedResultHandler implements ContextHandlerInterfac
     }
 }
 
-final class RespondAttributeCallbackFixture
+final class RespondAttributeFactoryFixture
 {
     #[Respond(
         202,
-        callback: static function (ResponseInterface $response): ResponseInterface {
-            return $response->withHeader('X-Callback', 'closure');
+        factory: static function (ResponseInterface $response, mixed $result): ResponseInterface {
+            return $response
+                ->withHeader('X-Factory', 'closure')
+                ->withHeader('X-Factory-Result', is_array($result) ? 'array' : get_debug_type($result));
         },
     )]
     public function closure(): array
@@ -38,15 +40,17 @@ final class RespondAttributeCallbackFixture
         return [];
     }
 
-    #[Respond(203, callback: self::modify(...))]
+    #[Respond(203, factory: self::modify(...))]
     public function firstClassCallable(): array
     {
         return [];
     }
 
-    private static function modify(ResponseInterface $response): ResponseInterface
+    private static function modify(ResponseInterface $response, mixed $result): ResponseInterface
     {
-        return $response->withHeader('X-Callback', 'first-class');
+        return $response
+            ->withHeader('X-Factory', 'first-class')
+            ->withHeader('X-Factory-Result', is_array($result) ? 'array' : get_debug_type($result));
     }
 }
 
@@ -106,17 +110,17 @@ it('applies configured headers when the handler already returns a response', fun
         ->and($response->getHeaderLine('X-Origin'))->toBe('handler');
 });
 
-it('applies the response callback after configured headers', function () {
+it('applies the response factory after configured headers', function () {
     $factory = new Psr17Factory();
     $responder = new Responder($factory, $factory);
     $interceptor = new RespondInterceptor(
         $responder,
         status: 201,
         headers: ['X-Stage' => 'headers'],
-        callback: static function (ResponseInterface $response): ResponseInterface {
+        factory: static function (ResponseInterface $response, mixed $result): ResponseInterface {
             return $response
-                ->withStatus(202)
-                ->withHeader('X-Stage', $response->getHeaderLine('X-Stage') . ', callback');
+                ->withStatus(is_array($result) && $result['id'] === 1 ? 202 : 500)
+                ->withHeader('X-Stage', $response->getHeaderLine('X-Stage') . ', factory');
         },
     );
     $context = new CallableContext(static fn () => null);
@@ -124,15 +128,15 @@ it('applies the response callback after configured headers', function () {
     $response = $interceptor->intercept($context, new RespondFixedResultHandler(['id' => 1]));
 
     expect($response->getStatusCode())->toBe(202)
-        ->and($response->getHeaderLine('X-Stage'))->toBe('headers, callback');
+        ->and($response->getHeaderLine('X-Stage'))->toBe('headers, factory');
 });
 
-it('rejects a callback result that is not a response', function () {
+it('rejects a factory result that is not a response', function () {
     $factory = new Psr17Factory();
     $responder = new Responder($factory, $factory);
     $interceptor = new RespondInterceptor(
         $responder,
-        callback: static function (ResponseInterface $response): string {
+        factory: static function (ResponseInterface $response, mixed $result): string {
             return 'invalid';
         },
     );
@@ -142,7 +146,7 @@ it('rejects a callback result that is not a response', function () {
         fn () => $interceptor->intercept($context, new RespondFixedResultHandler(['id' => 1])),
     )->toThrow(
         UnexpectedValueException::class,
-        'Response callback must return Psr\Http\Message\ResponseInterface, string returned.',
+        'Response factory must return Psr\Http\Message\ResponseInterface, string returned.',
     );
 });
 
@@ -188,39 +192,44 @@ it('passes response headers through attributes', function () {
     ]);
 });
 
-it('accepts a callback as the last response attribute argument', function () {
-    $callback = static function (ResponseInterface $response): ResponseInterface {
-        return $response->withHeader('X-Callback', 'direct');
+it('accepts a factory as the last response attribute argument', function () {
+    $factory = static function (ResponseInterface $response, mixed $result): ResponseInterface {
+        return $response->withHeader(
+            'X-Factory',
+            is_array($result) && $result['id'] === 1 ? 'direct' : 'unexpected',
+        );
     };
-    $respond = new Respond(202, 'application/json', [], $callback);
-    $created = new Created('application/json', [], $callback);
+    $respond = new Respond(202, 'application/json', [], $factory);
+    $created = new Created('application/json', [], $factory);
 
     expect($respond->params)->toBe([
         'status' => 202,
         'contentType' => 'application/json',
-        'callback' => $callback,
+        'factory' => $factory,
     ])->and($created->params)->toBe([
         'status' => 201,
         'contentType' => 'application/json',
-        'callback' => $callback,
+        'factory' => $factory,
     ]);
 });
 
 it('materializes PHP 8.5 closure and first-class callable attribute arguments', function () {
     $factory = new Psr17Factory();
 
-    $closure = (new ReflectionMethod(RespondAttributeCallbackFixture::class, 'closure'))
+    $closure = (new ReflectionMethod(RespondAttributeFactoryFixture::class, 'closure'))
         ->getAttributes(Respond::class)[0]
         ->newInstance();
-    $firstClass = (new ReflectionMethod(RespondAttributeCallbackFixture::class, 'firstClassCallable'))
+    $firstClass = (new ReflectionMethod(RespondAttributeFactoryFixture::class, 'firstClassCallable'))
         ->getAttributes(Respond::class)[0]
         ->newInstance();
 
-    $closureResponse = ($closure->params['callback'])($factory->createResponse());
-    $firstClassResponse = ($firstClass->params['callback'])($factory->createResponse());
+    $closureResponse = ($closure->params['factory'])($factory->createResponse(), ['id' => 1]);
+    $firstClassResponse = ($firstClass->params['factory'])($factory->createResponse(), ['id' => 1]);
 
     expect($closure->params['status'])->toBe(202)
-        ->and($closureResponse->getHeaderLine('X-Callback'))->toBe('closure')
+        ->and($closureResponse->getHeaderLine('X-Factory'))->toBe('closure')
+        ->and($closureResponse->getHeaderLine('X-Factory-Result'))->toBe('array')
         ->and($firstClass->params['status'])->toBe(203)
-        ->and($firstClassResponse->getHeaderLine('X-Callback'))->toBe('first-class');
+        ->and($firstClassResponse->getHeaderLine('X-Factory'))->toBe('first-class')
+        ->and($firstClassResponse->getHeaderLine('X-Factory-Result'))->toBe('array');
 });

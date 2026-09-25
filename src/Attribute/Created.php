@@ -13,13 +13,13 @@ final class Created extends Respond
 {
     /**
      * @param array<string, string|string[]> $headers
-     * @param null|Closure(ResponseInterface): ResponseInterface $callback
+     * @param null|Closure(ResponseInterface, mixed): ResponseInterface $factory
      */
     public function __construct(
         ?string $contentType = 'application/json',
         array $headers = [],
-        ?Closure $callback = null,
+        ?Closure $factory = null,
     ) {
-        parent::__construct(201, $contentType, $headers, $callback);
+        parent::__construct(201, $contentType, $headers, $factory);
     }
 }

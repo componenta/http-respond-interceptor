@@ -21,14 +21,14 @@ final readonly class RespondInterceptor implements InterceptorInterface, ScopedI
 
     /**
      * @param array<string, string|string[]> $headers
-     * @param null|Closure(ResponseInterface): ResponseInterface $callback
+     * @param null|Closure(ResponseInterface, mixed): ResponseInterface $factory
      */
     public function __construct(
         private Responder $responder,
         private int $status = 200,
         private ?string $contentType = null,
         private array $headers = [],
-        private ?Closure $callback = null,
+        private ?Closure $factory = null,
     ) {
         $this->scopes = Scopes::of(Scope::HTTP);
     }
@@ -37,20 +37,21 @@ final readonly class RespondInterceptor implements InterceptorInterface, ScopedI
         CallableContextInterface $context,
         ContextHandlerInterface $handler,
     ): ResponseInterface {
-        $response = $this->responder->respond($this->status, $handler->handle($context), $this->contentType);
+        $result = $handler->handle($context);
+        $response = $this->responder->respond($this->status, $result, $this->contentType);
 
         foreach ($this->headers as $name => $value) {
             $response = $response->withHeader($name, $value);
         }
 
-        if ($this->callback === null) {
+        if ($this->factory === null) {
             return $response;
         }
 
-        $modified = ($this->callback)($response);
+        $modified = ($this->factory)($response, $result);
         if (!$modified instanceof ResponseInterface) {
             throw new UnexpectedValueException(sprintf(
-                'Response callback must return %s, %s returned.',
+                'Response factory must return %s, %s returned.',
                 ResponseInterface::class,
                 get_debug_type($modified),
             ));
