@@ -41,22 +41,20 @@ final readonly class RespondInterceptor implements InterceptorInterface, ScopedI
     ): ResponseInterface {
         $result = $handler->handle($context);
 
+        $responder = $this->responder;
+
         $status = $this->status;
         $headers = $this->headers;
         $contentType = $this->contentType;
 
-        $respond = static function (mixed ...$arguments) use ($result, $status, $headers, $contentType): ResponseInterface {
+        $respond = static function (mixed ...$arguments) use ($result, $responder, $status, $headers, $contentType): ResponseInterface {
             if (count($arguments) > 1) {
                 throw new \InvalidArgumentException(
                     'Configured respond closure accepts zero or one result argument.',
                 );
             }
 
-            $response = $this->responder->respond(
-                $status,
-                $arguments === [] ? $result : $arguments[0],
-                $contentType,
-            );
+            $response = $responder->respond($status, $arguments === [] ? $result : $arguments[0], $contentType);
 
             foreach ($headers as $name => $value) {
                 $response = $response->withHeader($name, $value);
