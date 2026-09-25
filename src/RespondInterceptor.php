@@ -41,7 +41,11 @@ final readonly class RespondInterceptor implements InterceptorInterface, ScopedI
     ): ResponseInterface {
         $result = $handler->handle($context);
 
-        $respond = function (mixed ...$arguments) use ($result): ResponseInterface {
+        $status = $this->status;
+        $headers = $this->headers;
+        $contentType = $this->contentType;
+
+        $respond = static function (mixed ...$arguments) use ($result, $status, $headers, $contentType): ResponseInterface {
             if (count($arguments) > 1) {
                 throw new \InvalidArgumentException(
                     'Configured respond closure accepts zero or one result argument.',
@@ -49,12 +53,12 @@ final readonly class RespondInterceptor implements InterceptorInterface, ScopedI
             }
 
             $response = $this->responder->respond(
-                $this->status,
+                $status,
                 $arguments === [] ? $result : $arguments[0],
-                $this->contentType,
+                $contentType,
             );
 
-            foreach ($this->headers as $name => $value) {
+            foreach ($headers as $name => $value) {
                 $response = $response->withHeader($name, $value);
             }
 
@@ -65,15 +69,16 @@ final readonly class RespondInterceptor implements InterceptorInterface, ScopedI
             return $respond();
         }
 
-        $modified = $this->invoker->call($this->factory, [$respond, $result]);
-        if (!$modified instanceof ResponseInterface) {
+        $response = $this->invoker->call($this->factory, [$respond, $result]);
+        
+        if (!$response instanceof ResponseInterface) {
             throw new UnexpectedValueException(sprintf(
                 'Response factory must return %s, %s returned.',
                 ResponseInterface::class,
-                get_debug_type($modified),
+                get_debug_type($response),
             ));
         }
 
-        return $modified;
+        return $response;
     }
 }
