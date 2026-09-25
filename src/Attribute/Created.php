@@ -13,7 +13,7 @@ final class Created extends Respond
 {
     /**
      * @param array<string, string|string[]> $headers
-     * @param Closure|null $factory Receives the response and result first; trailing parameters are resolved by DI.
+     * @param Closure|null $factory Receives a configured respond closure and the handler result first; trailing parameters are resolved by DI.
      */
     public function __construct(
         ?string $contentType = 'application/json',

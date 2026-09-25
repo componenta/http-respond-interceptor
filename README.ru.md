@@ -45,20 +45,21 @@ final class HealthController
 
 ## Factory ответа
 
-Последний аргумент `#[Respond]` — необязательный factory ответа. Первым аргументом он принимает полностью сформированный `ResponseInterface`, вторым — `mixed` результат, возвращённый вложенной цепочкой обработчика/interceptor-ов. Все параметры после этих двух разрешаются через обычный механизм вызова Componenta DI. Factory обязан вернуть `ResponseInterface`.
+Последний аргумент `#[Respond]` — необязательный factory ответа. Первым аргументом он принимает настроенную `Closure $respond`, вторым — `mixed` результат, возвращённый вложенной цепочкой обработчика/interceptor-ов. Все параметры после этих двух разрешаются через обычный механизм вызова Componenta DI. Factory обязан вернуть `ResponseInterface`.
 
-Настроенные HTTP-заголовки применяются до factory, поэтому factory является финальным преобразованием ответа: он может заменить заголовки, изменить статус или выполнить любое другое иммутабельное PSR-7 преобразование.
+Closure `$respond` уже связана со status, content type и headers атрибута. Вызов `$respond()` использует исходный downstream result. Вызов `$respond($replacement)` передаёт в `Responder::respond()` заменяющее значение; явный `null` отличается от отсутствующего аргумента. Настроенные headers применяются внутри `$respond`, поэтому после её возврата factory всё ещё может их переопределить.
 
 PHP 8.5 позволяет передать static closure непосредственно в атрибут:
 
 ```php
+use Closure;
 use Psr\Http\Message\ResponseInterface;
 
 #[Respond(
     200,
     'application/json',
-    factory: static function (ResponseInterface $response, mixed $result): ResponseInterface {
-        return $response
+    factory: static function (Closure $respond, mixed $result): ResponseInterface {
+        return $respond()
             ->withStatus(202)
             ->withHeader('X-Response-Source', 'factory');
     },
@@ -77,9 +78,9 @@ final class UserController
         return [];
     }
 
-    private static function decorate(ResponseInterface $response, mixed $result): ResponseInterface
+    private static function decorate(Closure $respond, mixed $result): ResponseInterface
     {
-        return $response->withHeader('Cache-Control', 'no-store');
+        return $respond()->withHeader('Cache-Control', 'no-store');
     }
 }
 ```
@@ -89,26 +90,25 @@ final class UserController
 После первых двух зарезервированных аргументов можно инъектировать дополнительные сервисы. Например, если в приложении зарегистрирован Symfony `SerializerInterface`, его можно запросить непосредственно по типу:
 
 ```php
+use Closure;
 use Psr\Http\Message\ResponseInterface;
 use Symfony\Component\Serializer\SerializerInterface;
 
 #[Respond(
     200,
     factory: static function (
-        ResponseInterface $response,
+        Closure $respond,
         mixed $result,
         SerializerInterface $serializer,
     ): ResponseInterface {
-        return $response->withHeader(
-            'X-Result-Sha256',
-            hash('sha256', $serializer->serialize($result, 'json')),
-        );
+        return $respond($serializer->serialize($result, 'json'))
+            ->withHeader('X-Response-Source', 'serialized-factory');
     },
 )]
 public function show(): object {}
 ```
 
-Третий и последующие параметры не ограничены сериализатором: в них можно запросить любой сервис, который способен разрешить Componenta DI. Первые две позиции всегда остаются ответом и результатом вложенной цепочки.
+Третий и последующие параметры не ограничены сериализатором: в них можно запросить любой сервис, который способен разрешить Componenta DI. Первые две позиции всегда остаются настроенной respond-closure и downstream result. Это позволяет factory сначала сериализовать или спроецировать неподдерживаемый DTO, а затем передать преобразованное значение обычному Responder без инъекции самого Responder.
 
 
 Если factory возвращает значение, не реализующее `ResponseInterface`, `RespondInterceptor` выбрасывает `UnexpectedValueException`.
@@ -147,7 +147,7 @@ public function show(): array {}
 public function create(): array {}
 ```
 
-Перехватчик применяет настроенные заголовки после `Responder::respond()`. Поэтому они добавляются и в случае, когда обработчик уже вернул `ResponseInterface`; если заголовок с таким именем уже существует, настроенное значение заменяет его. Если настроен factory, он выполняется после применения этих заголовков и получает тот же результат вложенной цепочки, который был передан в `Responder::respond()`.
+Перехватчик применяет настроенные заголовки после `Responder::respond()`. Поэтому они добавляются и в случае, когда обработчик уже вернул `ResponseInterface`; если заголовок с таким именем уже существует, настроенное значение заменяет его. Настроенная `$respond` closure применяет эти headers к каждому создаваемому response. Factory отдельно получает исходный downstream result и может вызвать `$respond()` или `$respond($replacement)`; после возврата closure factory может переопределить эти headers.
 
 Таким же образом заголовки можно передать непосредственно в перехватчик. При прямом создании также требуется DI-aware `CallableInvokerInterface`; при обычном использовании атрибута он автоматически поступает из контейнера:
 
@@ -158,8 +158,8 @@ new RespondInterceptor(
     status: 200,
     contentType: 'application/json',
     headers: ['Cache-Control' => 'no-store'],
-    factory: static function (ResponseInterface $response, mixed $result): ResponseInterface {
-        return $response->withHeader('X-Response-Source', 'factory');
+    factory: static function (Closure $respond, mixed $result): ResponseInterface {
+        return $respond()->withHeader('X-Response-Source', 'factory');
     },
 );
 ```
@@ -179,22 +179,21 @@ Factory можно передать именованным аргументом 
 
 ```php
 #[Respond(200, factory: self::decorate(...))]
-#[Created(factory: static fn (ResponseInterface $response, mixed $result): ResponseInterface =>
-    $response->withHeader('Location', '/users/42')
+#[Created(factory: static fn (Closure $respond, mixed $result): ResponseInterface =>
+    $respond()->withHeader('Location', '/users/42')
 )]
 ```
 
 ## Порядок с сериализацией
 
-Response-перехватчик должен быть внешним слоем, если ниже есть сериализация:
+Если factory нужен исходный DTO, обычно следует сериализовать внутри factory, а не размещать `#[Serialize]` ниже `#[Respond]`:
 
 ```php
-#[Respond(200, 'application/json')]
-#[Serialize]
+#[Respond(200, 'application/json', factory: UserResponseFactory::create(...))]
 public function show(): User {}
 ```
 
-Возврат метода сначала пройдет через `#[Serialize]`, а затем сериализованная строка попадет в `#[Respond]`.
+Тогда factory получает исходный `User`, может инъектировать `SerializerInterface` и вызвать `$respond($serializer->serialize($result, 'json'))`. Если `#[Serialize]` всё же расположен ниже `#[Respond]`, вторым аргументом factory будет сериализованный результат внутренней цепочки, а не исходный DTO.
 
 ## Область выполнения
 

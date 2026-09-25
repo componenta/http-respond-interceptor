@@ -22,7 +22,7 @@ final readonly class RespondInterceptor implements InterceptorInterface, ScopedI
 
     /**
      * @param array<string, string|string[]> $headers
-     * @param Closure|null $factory Receives the response and result first; trailing parameters are resolved by DI.
+     * @param Closure|null $factory Receives a configured respond closure and the handler result first; trailing parameters are resolved by DI.
      */
     public function __construct(
         private Responder $responder,
@@ -40,17 +40,32 @@ final readonly class RespondInterceptor implements InterceptorInterface, ScopedI
         ContextHandlerInterface $handler,
     ): ResponseInterface {
         $result = $handler->handle($context);
-        $response = $this->responder->respond($this->status, $result, $this->contentType);
 
-        foreach ($this->headers as $name => $value) {
-            $response = $response->withHeader($name, $value);
-        }
+        $respond = function (mixed ...$arguments) use ($result): ResponseInterface {
+            if (count($arguments) > 1) {
+                throw new \InvalidArgumentException(
+                    'Configured respond closure accepts zero or one result argument.',
+                );
+            }
+
+            $response = $this->responder->respond(
+                $this->status,
+                $arguments === [] ? $result : $arguments[0],
+                $this->contentType,
+            );
+
+            foreach ($this->headers as $name => $value) {
+                $response = $response->withHeader($name, $value);
+            }
+
+            return $response;
+        };
 
         if ($this->factory === null) {
-            return $response;
+            return $respond();
         }
 
-        $modified = $this->invoker->call($this->factory, [$response, $result]);
+        $modified = $this->invoker->call($this->factory, [$respond, $result]);
         if (!$modified instanceof ResponseInterface) {
             throw new UnexpectedValueException(sprintf(
                 'Response factory must return %s, %s returned.',

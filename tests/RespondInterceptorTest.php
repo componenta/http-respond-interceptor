@@ -81,8 +81,8 @@ final class RespondAttributeFactoryFixture
 {
     #[Respond(
         202,
-        factory: static function (ResponseInterface $response, mixed $result): ResponseInterface {
-            return $response
+        factory: static function (Closure $respond, mixed $result): ResponseInterface {
+            return $respond()
                 ->withHeader('X-Factory', 'closure')
                 ->withHeader('X-Factory-Result', is_array($result) ? 'array' : get_debug_type($result));
         },
@@ -98,9 +98,9 @@ final class RespondAttributeFactoryFixture
         return [];
     }
 
-    private static function modify(ResponseInterface $response, mixed $result): ResponseInterface
+    private static function modify(Closure $respond, mixed $result): ResponseInterface
     {
-        return $response
+        return $respond()
             ->withHeader('X-Factory', 'first-class')
             ->withHeader('X-Factory-Result', is_array($result) ? 'array' : get_debug_type($result));
     }
@@ -172,7 +172,9 @@ it('applies the response factory after configured headers', function () {
         respondInvoker(),
         status: 201,
         headers: ['X-Stage' => 'headers'],
-        factory: static function (ResponseInterface $response, mixed $result): ResponseInterface {
+        factory: static function (Closure $respond, mixed $result): ResponseInterface {
+            $response = $respond();
+
             return $response
                 ->withStatus(is_array($result) && $result['id'] === 1 ? 202 : 500)
                 ->withHeader('X-Stage', $response->getHeaderLine('X-Stage') . ', factory');
@@ -184,6 +186,53 @@ it('applies the response factory after configured headers', function () {
 
     expect($response->getStatusCode())->toBe(202)
         ->and($response->getHeaderLine('X-Stage'))->toBe('headers, factory');
+});
+
+it('lets the response factory replace the result passed to the configured responder', function () {
+    $factory = new Psr17Factory();
+    $responder = new Responder($factory, $factory);
+    $interceptor = new RespondInterceptor(
+        $responder,
+        respondInvoker(),
+        contentType: 'application/json',
+        factory: static fn(Closure $respond, mixed $result): ResponseInterface =>
+            $respond(['source_id' => $result['id'], 'projected' => true]),
+    );
+    $context = new CallableContext(static fn () => null);
+
+    $response = $interceptor->intercept(
+        $context,
+        new RespondFixedResultHandler(['id' => 7]),
+    );
+
+    expect((string) $response->getBody())
+        ->toBe('{"source_id":7,"projected":true}');
+});
+
+it('distinguishes an omitted response result from an explicit null override', function () {
+    $factory = new Psr17Factory();
+    $responder = new Responder($factory, $factory);
+    $context = new CallableContext(static fn () => null);
+
+    $default = new RespondInterceptor(
+        $responder,
+        respondInvoker(),
+        factory: static fn(Closure $respond): ResponseInterface => $respond(),
+    );
+    $null = new RespondInterceptor(
+        $responder,
+        respondInvoker(),
+        factory: static fn(Closure $respond): ResponseInterface => $respond(null),
+    );
+
+    $handler = new RespondFixedResultHandler(['id' => 1]);
+
+    $defaultResponse = $default->intercept($context, $handler);
+    $nullResponse = $null->intercept($context, $handler);
+
+    expect((string) $defaultResponse->getBody())->toBe('{"id":1}')
+        ->and($nullResponse->getStatusCode())->toBe(204)
+        ->and((string) $nullResponse->getBody())->toBe('');
 });
 
 it('injects additional response factory parameters through Componenta DI', function () {
@@ -198,11 +247,11 @@ it('injects additional response factory parameters through Componenta DI', funct
         $responder,
         respondInvoker(),
         factory: static function (
-            ResponseInterface $response,
+            Closure $respond,
             mixed $result,
             RespondInjectedDependencyInterface $dependency,
         ): ResponseInterface {
-            return $response
+            return $respond()
                 ->withHeader('X-Injected-Service', $dependency->value())
                 ->withHeader(
                     'X-Factory-Result',
@@ -227,7 +276,7 @@ it('rejects a factory result that is not a response', function () {
     $interceptor = new RespondInterceptor(
         $responder,
         respondInvoker(),
-        factory: static function (ResponseInterface $response, mixed $result): string {
+        factory: static function (Closure $respond, mixed $result): string {
             return 'invalid';
         },
     );
@@ -284,8 +333,8 @@ it('passes response headers through attributes', function () {
 });
 
 it('accepts a factory as the last response attribute argument', function () {
-    $factory = static function (ResponseInterface $response, mixed $result): ResponseInterface {
-        return $response->withHeader(
+    $factory = static function (Closure $respond, mixed $result): ResponseInterface {
+        return $respond()->withHeader(
             'X-Factory',
             is_array($result) && $result['id'] === 1 ? 'direct' : 'unexpected',
         );
@@ -314,8 +363,10 @@ it('materializes PHP 8.5 closure and first-class callable attribute arguments', 
         ->getAttributes(Respond::class)[0]
         ->newInstance();
 
-    $closureResponse = ($closure->params['factory'])($factory->createResponse(), ['id' => 1]);
-    $firstClassResponse = ($firstClass->params['factory'])($factory->createResponse(), ['id' => 1]);
+    $respond = static fn(): ResponseInterface => $factory->createResponse();
+
+    $closureResponse = ($closure->params['factory'])($respond, ['id' => 1]);
+    $firstClassResponse = ($firstClass->params['factory'])($respond, ['id' => 1]);
 
     expect($closure->params['status'])->toBe(202)
         ->and($closureResponse->getHeaderLine('X-Factory'))->toBe('closure')
