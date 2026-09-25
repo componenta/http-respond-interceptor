@@ -45,7 +45,7 @@ final class HealthController
 
 ## Response Factory
 
-The last argument of `#[Respond]` is an optional response factory. It receives the fully built `ResponseInterface` as its first argument and the result returned by the downstream handler/interceptor chain as its second `mixed` argument. It must return a `ResponseInterface`.
+The last argument of `#[Respond]` is an optional response factory. It receives the fully built `ResponseInterface` as its first argument and the result returned by the downstream handler/interceptor chain as its second `mixed` argument. Any parameters after those two are resolved through Componenta DI's normal callable-invocation pipeline. The factory must return a `ResponseInterface`.
 
 Configured headers are applied before the factory, so the factory is the final response transformation and may replace headers, change the status, or perform any other immutable PSR-7 modification.
 
@@ -86,6 +86,31 @@ final class UserController
 
 `#[Created]` supports the same final factory argument.
 
+Additional services can be injected after the first two reserved arguments. For example, when the application binds Symfony's `SerializerInterface`, it can be requested directly by type:
+
+```php
+use Psr\Http\Message\ResponseInterface;
+use Symfony\Component\Serializer\SerializerInterface;
+
+#[Respond(
+    200,
+    factory: static function (
+        ResponseInterface $response,
+        mixed $result,
+        SerializerInterface $serializer,
+    ): ResponseInterface {
+        return $response->withHeader(
+            'X-Result-Sha256',
+            hash('sha256', $serializer->serialize($result, 'json')),
+        );
+    },
+)]
+public function show(): object {}
+```
+
+The third and later parameters are not limited to serializers; any service resolvable by Componenta DI can be requested there. The first two positions always remain the response and downstream result.
+
+
 If a factory returns anything other than `ResponseInterface`, `RespondInterceptor` throws `UnexpectedValueException`.
 
 ## Status Codes
@@ -124,11 +149,12 @@ public function create(): array {}
 
 The interceptor applies configured headers after `Responder::respond()`. They are therefore also applied when the handler already returns a `ResponseInterface`, and a configured header replaces an existing header with the same name. The response factory, when configured, runs after these headers and receives the same downstream result that was passed to `Responder::respond()`.
 
-The interceptor can be configured directly in the same way:
+The interceptor can be configured directly in the same way. Direct construction also requires a DI-aware `CallableInvokerInterface`; normal attribute-based construction receives it from the container automatically:
 
 ```php
 new RespondInterceptor(
     $responder,
+    $invoker,
     status: 200,
     contentType: 'application/json',
     headers: ['Cache-Control' => 'no-store'],

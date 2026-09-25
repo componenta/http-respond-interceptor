@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Componenta\Interceptor\Http;
 
 use Closure;
+use Componenta\DI\CallableInvokerInterface;
 use Componenta\Http\Responder;
 use Componenta\Interceptor\CallableContextInterface;
 use Componenta\Interceptor\ContextHandlerInterface;
@@ -21,10 +22,11 @@ final readonly class RespondInterceptor implements InterceptorInterface, ScopedI
 
     /**
      * @param array<string, string|string[]> $headers
-     * @param null|Closure(ResponseInterface, mixed): ResponseInterface $factory
+     * @param Closure|null $factory Receives the response and result first; trailing parameters are resolved by DI.
      */
     public function __construct(
         private Responder $responder,
+        private CallableInvokerInterface $invoker,
         private int $status = 200,
         private ?string $contentType = null,
         private array $headers = [],
@@ -48,7 +50,7 @@ final readonly class RespondInterceptor implements InterceptorInterface, ScopedI
             return $response;
         }
 
-        $modified = ($this->factory)($response, $result);
+        $modified = $this->invoker->call($this->factory, [$response, $result]);
         if (!$modified instanceof ResponseInterface) {
             throw new UnexpectedValueException(sprintf(
                 'Response factory must return %s, %s returned.',

@@ -45,7 +45,7 @@ final class HealthController
 
 ## Factory ответа
 
-Последний аргумент `#[Respond]` — необязательный factory ответа. Первым аргументом он принимает полностью сформированный `ResponseInterface`, вторым — `mixed` результат, возвращённый вложенной цепочкой обработчика/interceptor-ов. Factory обязан вернуть `ResponseInterface`.
+Последний аргумент `#[Respond]` — необязательный factory ответа. Первым аргументом он принимает полностью сформированный `ResponseInterface`, вторым — `mixed` результат, возвращённый вложенной цепочкой обработчика/interceptor-ов. Все параметры после этих двух разрешаются через обычный механизм вызова Componenta DI. Factory обязан вернуть `ResponseInterface`.
 
 Настроенные HTTP-заголовки применяются до factory, поэтому factory является финальным преобразованием ответа: он может заменить заголовки, изменить статус или выполнить любое другое иммутабельное PSR-7 преобразование.
 
@@ -86,6 +86,31 @@ final class UserController
 
 `#[Created]` поддерживает такой же последний factory-аргумент.
 
+После первых двух зарезервированных аргументов можно инъектировать дополнительные сервисы. Например, если в приложении зарегистрирован Symfony `SerializerInterface`, его можно запросить непосредственно по типу:
+
+```php
+use Psr\Http\Message\ResponseInterface;
+use Symfony\Component\Serializer\SerializerInterface;
+
+#[Respond(
+    200,
+    factory: static function (
+        ResponseInterface $response,
+        mixed $result,
+        SerializerInterface $serializer,
+    ): ResponseInterface {
+        return $response->withHeader(
+            'X-Result-Sha256',
+            hash('sha256', $serializer->serialize($result, 'json')),
+        );
+    },
+)]
+public function show(): object {}
+```
+
+Третий и последующие параметры не ограничены сериализатором: в них можно запросить любой сервис, который способен разрешить Componenta DI. Первые две позиции всегда остаются ответом и результатом вложенной цепочки.
+
+
 Если factory возвращает значение, не реализующее `ResponseInterface`, `RespondInterceptor` выбрасывает `UnexpectedValueException`.
 
 ## Статусы
@@ -124,11 +149,12 @@ public function create(): array {}
 
 Перехватчик применяет настроенные заголовки после `Responder::respond()`. Поэтому они добавляются и в случае, когда обработчик уже вернул `ResponseInterface`; если заголовок с таким именем уже существует, настроенное значение заменяет его. Если настроен factory, он выполняется после применения этих заголовков и получает тот же результат вложенной цепочки, который был передан в `Responder::respond()`.
 
-Таким же образом заголовки можно передать непосредственно в перехватчик:
+Таким же образом заголовки можно передать непосредственно в перехватчик. При прямом создании также требуется DI-aware `CallableInvokerInterface`; при обычном использовании атрибута он автоматически поступает из контейнера:
 
 ```php
 new RespondInterceptor(
     $responder,
+    $invoker,
     status: 200,
     contentType: 'application/json',
     headers: ['Cache-Control' => 'no-store'],

@@ -22,7 +22,7 @@ class Respond extends Intercept implements ScopedInterface
 
     /**
      * @param array<string, string|string[]> $headers
-     * @param null|Closure(ResponseInterface, mixed): ResponseInterface $factory
+     * @param Closure|null $factory Receives the response and result first; trailing parameters are resolved by DI.
      */
     public function __construct(
         int $status = 200,

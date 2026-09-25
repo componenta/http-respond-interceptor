@@ -2,6 +2,12 @@
 
 declare(strict_types=1);
 
+use Componenta\Config\Config;
+use Componenta\Config\DependencyDefinitions;
+use Componenta\Config\Environment;
+use Componenta\DI\CallableInvokerInterface;
+use Componenta\DI\Container;
+use Componenta\DI\ContainerFactory;
 use Componenta\Http\Responder;
 use Componenta\Interceptor\CallableContext;
 use Componenta\Interceptor\CallableContextInterface;
@@ -12,6 +18,52 @@ use Componenta\Interceptor\Http\RespondInterceptor;
 use Componenta\Interceptor\Scope;
 use Nyholm\Psr7\Factory\Psr17Factory;
 use Psr\Http\Message\ResponseInterface;
+
+interface RespondInjectedDependencyInterface
+{
+    public function value(): string;
+}
+
+final readonly class RespondInjectedDependency implements RespondInjectedDependencyInterface
+{
+    public function __construct(private string $value)
+    {
+    }
+
+    public function value(): string
+    {
+        return $this->value;
+    }
+}
+
+function respondContainer(): Container
+{
+    static $container = null;
+
+    if ($container instanceof Container) {
+        return $container;
+    }
+
+    $value = (new ContainerFactory())->create(
+        new Config([], new Environment([])),
+        new DependencyDefinitions([]),
+    );
+
+    if (!$value->container instanceof Container) {
+        throw new RuntimeException('Expected Componenta DI container.');
+    }
+
+    return $container = $value->container;
+}
+
+function respondInvoker(): CallableInvokerInterface
+{
+    $invoker = respondContainer()->get(CallableInvokerInterface::class);
+
+    return $invoker instanceof CallableInvokerInterface
+        ? $invoker
+        : throw new RuntimeException('Expected a DI-aware callable invoker.');
+}
 
 final readonly class RespondFixedResultHandler implements ContextHandlerInterface
 {
@@ -57,7 +109,7 @@ final class RespondAttributeFactoryFixture
 it('wraps handler result into a response', function () {
     $factory = new Psr17Factory();
     $responder = new Responder($factory, $factory);
-    $interceptor = new RespondInterceptor($responder, status: 201, contentType: 'application/json');
+    $interceptor = new RespondInterceptor($responder, respondInvoker(), status: 201, contentType: 'application/json');
     $context = new CallableContext(static fn () => null);
 
     $response = $interceptor->intercept($context, new RespondFixedResultHandler(['id' => 1]));
@@ -72,6 +124,7 @@ it('applies configured headers to a wrapped response', function () {
     $responder = new Responder($factory, $factory);
     $interceptor = new RespondInterceptor(
         $responder,
+        respondInvoker(),
         headers: [
             'Cache-Control' => 'no-store',
             'Vary' => ['Accept', 'Authorization'],
@@ -90,6 +143,7 @@ it('applies configured headers when the handler already returns a response', fun
     $responder = new Responder($factory, $factory);
     $interceptor = new RespondInterceptor(
         $responder,
+        respondInvoker(),
         status: 201,
         contentType: 'application/json',
         headers: [
@@ -115,6 +169,7 @@ it('applies the response factory after configured headers', function () {
     $responder = new Responder($factory, $factory);
     $interceptor = new RespondInterceptor(
         $responder,
+        respondInvoker(),
         status: 201,
         headers: ['X-Stage' => 'headers'],
         factory: static function (ResponseInterface $response, mixed $result): ResponseInterface {
@@ -131,11 +186,47 @@ it('applies the response factory after configured headers', function () {
         ->and($response->getHeaderLine('X-Stage'))->toBe('headers, factory');
 });
 
+it('injects additional response factory parameters through Componenta DI', function () {
+    $factory = new Psr17Factory();
+    $responder = new Responder($factory, $factory);
+    $container = respondContainer();
+    $container->set(
+        RespondInjectedDependencyInterface::class,
+        new RespondInjectedDependency('from-container'),
+    );
+    $interceptor = new RespondInterceptor(
+        $responder,
+        respondInvoker(),
+        factory: static function (
+            ResponseInterface $response,
+            mixed $result,
+            RespondInjectedDependencyInterface $dependency,
+        ): ResponseInterface {
+            return $response
+                ->withHeader('X-Injected-Service', $dependency->value())
+                ->withHeader(
+                    'X-Factory-Result',
+                    is_array($result) ? (string) ($result['id'] ?? '') : get_debug_type($result),
+                );
+        },
+    );
+    $context = new CallableContext(static fn () => null);
+
+    $response = $interceptor->intercept(
+        $context,
+        new RespondFixedResultHandler(['id' => 42]),
+    );
+
+    expect($response->getHeaderLine('X-Injected-Service'))->toBe('from-container')
+        ->and($response->getHeaderLine('X-Factory-Result'))->toBe('42');
+});
+
 it('rejects a factory result that is not a response', function () {
     $factory = new Psr17Factory();
     $responder = new Responder($factory, $factory);
     $interceptor = new RespondInterceptor(
         $responder,
+        respondInvoker(),
         factory: static function (ResponseInterface $response, mixed $result): string {
             return 'invalid';
         },
@@ -153,7 +244,7 @@ it('rejects a factory result that is not a response', function () {
 it('omits handler content when the response status prohibits it', function (int $status): void {
     $factory = new Psr17Factory();
     $responder = new Responder($factory, $factory);
-    $interceptor = new RespondInterceptor($responder, status: $status);
+    $interceptor = new RespondInterceptor($responder, respondInvoker(), status: $status);
     $context = new CallableContext(static fn () => null);
 
     $response = $interceptor->intercept($context, new RespondFixedResultHandler(['id' => 1]));

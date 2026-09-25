@@ -5,6 +5,7 @@
     "license": "MIT",
     "require": {
         "php": "^8.5",
+        "componenta/di": "^5.0.0",
         "componenta/http-responder": "^1.0.3",
         "componenta/interceptor": "^3.0.0",
         "componenta/scope": "^1.0",
